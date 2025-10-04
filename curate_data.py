@@ -44,7 +44,7 @@ else:
     spacy_model = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
 
 
-# Dealing with numbers in text
+# Handling numbers in text
 
 def contains_number_regex(text: str) -> bool:
     """
@@ -119,7 +119,7 @@ def filter_numbers(df: pd.DataFrame, fast_mode: bool = False) -> pd.DataFrame:
     return df[combined_mask]
 
 
-# Dealing with non-English words
+# Handling non-English words
 
 def contains_non_english_words(text: str, min_ratio: float = 0.8) -> bool:
     """
@@ -167,18 +167,76 @@ def filter_non_english_words(df: pd.DataFrame) -> pd.DataFrame:
     return filtered_df
 
 
+# Handling unusual proper nouns
+
+def has_unusual_proper_noun(text: str) -> bool:
+    """
+    Identify whether text contains unusual proper nouns, based on NER.
+
+    Detects entities such as PERSON, ORG, GPE, LOC, or WORK_OF_ART
+    that are not common English words.
+
+    Args:
+        text (str): Input text.
+
+    Returns:
+        bool: True if text contains a proper noun not in the English
+              dictionary, False otherwise.
+    """
+    if not isinstance(text, str) or len(text) < 3:
+        return False
+    doc = spacy_model(text)
+    for ent in doc.ents:
+        if ent.label_ in {"PERSON", "ORG", "GPE", "LOC", "WORK_OF_ART"}:
+            token_lower = ent.text.strip().lower()
+            if len(token_lower) > 2 and token_lower not in ENGLISH_WORDS:
+                return True
+    return False
+
+
+def filter_proper_nouns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filter dataset rows containing unusual or rare proper nouns.
+
+    Args:
+        df (pd.DataFrame): Input dataframe with a 'text' column.
+
+    Returns:
+        pd.DataFrame: Subset of rows containing unusual proper nouns.
+    """
+
+    filtered_df = df[df["text"].parallel_apply(has_unusual_proper_noun)]
+    return filtered_df
+
 # Main pipeline
 
 
-def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratification: bool = True) -> None:
+def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratification: bool = True, random_state: int = 42) -> None:
 
     """
     Execute the full curation process to generate three NER validation subsets.
+
+    Adds 'original_index' to preserve reference to the source dataset.
+
+    Processes:
+      1. Add 'original_index' to map curated samples to source file rows.
+      2. Combines 'question' and 'answer' text into a unified field.
+      3. Filter entries into three strata:
+         - Numeric entities (numbers, money, dates, etc.)
+         - Non-English words
+         - Unusual proper nouns
+      4. Optionally removes duplicates between strata.
+      5. Randomly sample up to 1,000 examples from each.
+      6. Save as JSONL files.
 
     Args:
         df (pd.DataFrame): Input dataframe with 'question' and 'answer' columns.
         fast_mode (bool): If True, uses regex-only detection for numbers to accelerate processing.
         strict_stratification (bool): If True, stratifies classes without duplicates within themselves.
+        random_state (int): Random state seed for reproductibility.
+
+    Outputs:
+        subset_numbers.jsonl, subset_non_english.jsonl, subset_proper_nouns.jsonl
 
     """
 
@@ -202,22 +260,46 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
     else:
         df_non_english = filter_non_english_words(df)
 
+    # Step 3: Filtering phrases with unusual proper nouns
+
+    if strict_stratification:
+        used_ids |= set(df_non_english.index)
+        df_proper = df[~df.index.isin(used_ids)]
+        df_proper = filter_proper_nouns(df_proper)
+    else:
+        df_proper = filter_proper_nouns(df)
+
     # Summary of the subset of datasets:
 
-    print("\nSummary of unique matches:")
-    print(f"Phrases containing numbers: {len(df_numbers)}")
-    print(f"Phrases non-English words: {len(df_non_english)}")
+    print("\nSummary of matches:")
+    print(f"Examples with phrases containing numbers: {len(df_numbers)}")
+    print(f"Examples with phrases containing non-English words: {len(df_non_english)}")
+    print(f"Examples with phrases containing unusual proper nouns: {len(df_proper)}")
+
+    # Saves 1000 samples per stratum, keeping original_index
+
+    columns_to_save = ["original_index", "question", "answer", "text",
+                       "category", "show_number", "value", "round",
+                       "show_number", "air_date"]
+
+    df_numbers.sample(min(1000, len(df_numbers)), random_state=random_state)[columns_to_save]\
+        .to_json("outputs/subset_numbers.jsonl", orient="records", lines=True)
+
+    df_non_english.sample(min(1000, len(df_non_english)), random_state=random_state)[columns_to_save]\
+        .to_json("outputs/subset_non_english.jsonl", orient="records", lines=True)
+
+    df_proper.sample(min(1000, len(df_proper)), random_state=random_state)[columns_to_save]\
+        .to_json("outputs/subset_proper_nouns.jsonl", orient="records", lines=True)
 
 
 # Entry point
-
 
 if __name__ == "__main__":
     """
     Entry point for direct script execution.
 
     Loads the JEOPARDY_QUESTIONS1.json dataset, validates columns,
-    and executes the curation pipeline with the chosen performance mode.
+    and executes the curation pipeline with the chosen performance mode and stratification strategy.
     """
 
     df = pd.read_json("questions/JEOPARDY_QUESTIONS1.json")
@@ -227,5 +309,8 @@ if __name__ == "__main__":
 
     use_fast_mode = False
     use_strict_stratification = False
+    seed = 42
 
-    curate_datasets(df, fast_mode=use_fast_mode, strict_stratification=use_strict_stratification)
+    curate_datasets(df, fast_mode=use_fast_mode,
+                     strict_stratification=use_strict_stratification,
+                     random_state=seed)
