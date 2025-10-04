@@ -4,7 +4,7 @@ import string
 import pandas as pd
 from pandarallel import pandarallel
 import spacy
-
+from spacy import prefer_gpu
 
 # Initialize pandarallel paralelism
 pandarallel.initialize(progress_bar=True)
@@ -25,14 +25,20 @@ NUMBER_WORD_PATTERN = re.compile(r"\b(" + "|".join(NUMBER_WORDS) + r")\b", re.IG
 
 
 # Loads a lightweight spaCy model
-spacy_model = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
+if prefer_gpu():
+    # Loads a model optimized for GPU acceleration
+    spacy_model = spacy.load("en_core_web_trf", disable=["parser", "lemmatizer"])
+else:
+    # Loads a model devised to run without GPU acceleration
+    spacy_model = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
+
 
 # Dealing with numbers in text
 
 
 def contains_number_regex(text: str) -> bool:
     """
-    Check if text contains digits or common written number words.
+    Checks if text contains digits or common written number words.
 
     Args:
         text (str): Input text.
@@ -50,7 +56,7 @@ def contains_number_regex(text: str) -> bool:
 
 def has_spacy_number_entity(text: str) -> bool:
     """
-    Detect numeric-related entities using spaCy NER.
+    Detects numeric-related entities using spaCy NER.
 
     Recognizes entity types such as CARDINAL, ORDINAL, MONEY, DATE,
     TIME, PERCENT, and QUANTITY.
@@ -107,7 +113,23 @@ def filter_numbers(df: pd.DataFrame, fast_mode: bool = False) -> pd.DataFrame:
 
 
 def curate_datasets(df: pd.DataFrame, fast_mode: bool = False) -> None:
-    pass
+
+    # Keeping a stable reference to the original dataset
+    df = df.copy()
+    df["original_index"] = df.index
+
+    # Combining question + answer for richer context
+    df["text"] = df["question"].fillna("") + " " + df["answer"].fillna(" ")
+
+    # Step 1 : Filtering for numbers and numeric phrases
+
+    df_numbers = filter_numbers(df, fast_mode=fast_mode)
+
+    # Summary of the subset of datasets:
+
+    print("\nSummary of unique matches:")
+    print(f"Phrases containing numbers: {len(df_numbers)}")
+
 
 # Entry point
 
@@ -124,6 +146,5 @@ if __name__ == "__main__":
     df.columns = [col.lower() for col in df.columns]
     if "question" not in df.columns or "answer" not in df.columns:
         raise ValueError("Dataset must contain both 'question' and 'answer' columns!")
-    df["text"] = df["question"].fillna("") + " " + df["answer"].fillna(" ")
 
-    curate_datasets(df["text"], fast_mode=False)
+    curate_datasets(df, fast_mode=False)
