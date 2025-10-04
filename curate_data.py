@@ -6,6 +6,7 @@ import pandas as pd
 from pandarallel import pandarallel
 from nltk.corpus import words, wordnet
 from nltk.tokenize import wordpunct_tokenize
+from spacy import prefer_gpu
 import spacy
 
 
@@ -24,19 +25,17 @@ ENGLISH_WORDS.update(word.lower() for word in wordnet.words())
 # Compile regex patterns
 PUNCT_DIGIT_TABLE = str.maketrans("", "", string.punctuation + string.digits)
 
-NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven",
-                "eight", "nine", "ten",
-                "eleven", "twelve", "thirteen", "fourteen", "fifteen",
-                "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
-                "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
-                "ninety", "hundred", "thousand", "million", "billion"]
+NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+                "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+                "hundred", "thousand", "million", "billion"]
 
 DIGIT_PATTERN = re.compile(r"\b\d+([.,]\d+)?\b")
 NUMBER_WORD_PATTERN = re.compile(r"\b(" + "|".join(NUMBER_WORDS) + r")\b", re.IGNORECASE)
 
 
 # Loads a lightweight spaCy model
-if spacy.prefer_gpu():
+if prefer_gpu():
     # Loads a model optimized for GPU acceleration
     spacy_model = spacy.load("en_core_web_trf", disable=["parser", "lemmatizer"])
 else:
@@ -210,7 +209,6 @@ def filter_proper_nouns(df: pd.DataFrame) -> pd.DataFrame:
 
 # Main pipeline
 
-
 def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratification: bool = True, random_state: int = 42) -> None:
 
     """
@@ -233,7 +231,7 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
         df (pd.DataFrame): Input dataframe with 'question' and 'answer' columns.
         fast_mode (bool): If True, uses regex-only detection for numbers to accelerate processing.
         strict_stratification (bool): If True, stratifies classes without duplicates within themselves.
-        random_state (int): Random state seed for reproductibility.
+        random_state (int): Random state seed for reproducibility.
 
     Outputs:
         subset_numbers.jsonl, subset_non_english.jsonl, subset_proper_nouns.jsonl
@@ -241,6 +239,7 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
     """
 
     # Keeping a stable reference to the original dataset
+
     df = df.copy()
     df["original_index"] = df.index
 
@@ -249,10 +248,12 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
 
     # Step 1 : Filtering for numbers and numeric phrases
 
+    print("Filtering phrases containing numbers")
     df_numbers = filter_numbers(df, fast_mode=fast_mode)
 
     # Step 2: Filtering phrases with non-English words
 
+    print("Filtering phrases containing non-English words")
     if strict_stratification:
         used_ids = set(df_numbers.index)
         df_non_english = df[~df.index.isin(used_ids)]
@@ -262,6 +263,7 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
 
     # Step 3: Filtering phrases with unusual proper nouns
 
+    print("Filtering phrases containing unusual proper nouns")
     if strict_stratification:
         used_ids |= set(df_non_english.index)
         df_proper = df[~df.index.isin(used_ids)]
@@ -279,17 +281,16 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
     # Saves 1000 samples per stratum, keeping original_index
 
     columns_to_save = ["original_index", "question", "answer", "text",
-                       "category", "show_number", "value", "round",
-                       "show_number", "air_date"]
+                       "category", "value", "round", "show_number", "air_date"]
 
     df_numbers.sample(min(1000, len(df_numbers)), random_state=random_state)[columns_to_save]\
-        .to_json("outputs/subset_numbers.jsonl", orient="records", lines=True)
+        .to_json("outputs/subset_numbers.jsonl", orient="records", lines=True, force_ascii=False)
 
     df_non_english.sample(min(1000, len(df_non_english)), random_state=random_state)[columns_to_save]\
-        .to_json("outputs/subset_non_english.jsonl", orient="records", lines=True)
+        .to_json("outputs/subset_non_english.jsonl", orient="records", lines=True, force_ascii=False)
 
     df_proper.sample(min(1000, len(df_proper)), random_state=random_state)[columns_to_save]\
-        .to_json("outputs/subset_proper_nouns.jsonl", orient="records", lines=True)
+        .to_json("outputs/subset_proper_nouns.jsonl", orient="records", lines=True, force_ascii=False)
 
 
 # Entry point
