@@ -1,13 +1,24 @@
 # Import libraries and dependencies
 import re
 import string
+import nltk
 import pandas as pd
 from pandarallel import pandarallel
+from nltk.corpus import words, wordnet
+from nltk.tokenize import wordpunct_tokenize
 import spacy
-from spacy import prefer_gpu
+
 
 # Initialize pandarallel paralelism
 pandarallel.initialize(progress_bar=True)
+
+# Loading NLTK models
+nltk.download("words")
+nltk.download("wordnet")
+nltk.download("punkt")
+
+ENGLISH_WORDS = set(word.lower() for word in words.words())
+ENGLISH_WORDS.update(word.lower() for word in wordnet.words())
 
 
 # Compile regex patterns
@@ -25,7 +36,7 @@ NUMBER_WORD_PATTERN = re.compile(r"\b(" + "|".join(NUMBER_WORDS) + r")\b", re.IG
 
 
 # Loads a lightweight spaCy model
-if prefer_gpu():
+if spacy.prefer_gpu():
     # Loads a model optimized for GPU acceleration
     spacy_model = spacy.load("en_core_web_trf", disable=["parser", "lemmatizer"])
 else:
@@ -34,7 +45,6 @@ else:
 
 
 # Dealing with numbers in text
-
 
 def contains_number_regex(text: str) -> bool:
     """
@@ -109,10 +119,68 @@ def filter_numbers(df: pd.DataFrame, fast_mode: bool = False) -> pd.DataFrame:
     return df[combined_mask]
 
 
+# Dealing with non-English words
+
+def contains_non_english_words(text: str, min_ratio: float = 0.8) -> bool:
+    """
+    Determines if text contains non-English words by comparing tokens
+    with a known English vocabulary.
+
+    Args:
+        text (str): Input text.
+        min_ratio (float): Minimum ratio of tokens that must appear in
+                           the English dictionary for the text to be
+                           considered English.
+
+    Returns:
+        bool: True if fewer than 'min_ratio' of tokens are recognized
+              English words, indicating likely presence of non-English words.
+    """
+
+    if not isinstance(text, str):
+        return False
+
+    text = text.translate(PUNCT_DIGIT_TABLE).lower()
+    tokens = [token for token in wordpunct_tokenize(text) if len(token) > 1]
+
+    if not tokens:
+        return False
+
+    english_words_count = sum(1 for token in tokens if token in ENGLISH_WORDS)
+    ratio = english_words_count / len(tokens)
+
+    return ratio < min_ratio
+
+
+def filter_non_english_words(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filters dataset rows containing non-English words using a wordlist approach.
+
+    Args:
+        df (pd.DataFrame): Input dataframe with a 'text' column.
+
+    Returns:
+        pd.DataFrame: Subset of rows likely containing non-English text.
+    """
+
+    filtered_df = df[df["text"].parallel_apply(contains_non_english_words)]
+    return filtered_df
+
+
 # Main pipeline
 
 
-def curate_datasets(df: pd.DataFrame, fast_mode: bool = False) -> None:
+def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratification: bool = True) -> None:
+
+    """
+    Execute the full curation process to generate three NER validation subsets.
+
+    Args:
+        df (pd.DataFrame): Input dataframe with 'question' and 'answer' columns.
+        fast_mode (bool): If True, uses regex-only detection for numbers to accelerate processing.
+        strict_stratification (bool): If True, stratifies classes without duplicates within themselves.
+
+    """
 
     # Keeping a stable reference to the original dataset
     df = df.copy()
@@ -125,10 +193,20 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False) -> None:
 
     df_numbers = filter_numbers(df, fast_mode=fast_mode)
 
+    # Step 2: Filtering phrases with non-English words
+
+    if strict_stratification:
+        used_ids = set(df_numbers.index)
+        df_non_english = df[~df.index.isin(used_ids)]
+        df_non_english = filter_non_english_words(df_non_english)
+    else:
+        df_non_english = filter_non_english_words(df)
+
     # Summary of the subset of datasets:
 
     print("\nSummary of unique matches:")
     print(f"Phrases containing numbers: {len(df_numbers)}")
+    print(f"Phrases non-English words: {len(df_non_english)}")
 
 
 # Entry point
@@ -147,4 +225,7 @@ if __name__ == "__main__":
     if "question" not in df.columns or "answer" not in df.columns:
         raise ValueError("Dataset must contain both 'question' and 'answer' columns!")
 
-    curate_datasets(df, fast_mode=False)
+    use_fast_mode = False
+    use_strict_stratification = False
+
+    curate_datasets(df, fast_mode=use_fast_mode, strict_stratification=use_strict_stratification)
