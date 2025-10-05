@@ -60,6 +60,17 @@ The curation process is divided into several steps designed to extract linguisti
 
 This process ensures that each curated subset highlights a specific linguistic phenomenon relevant for evaluating NER robustness, while maintaining a clean, reproducible, and interpretable workflow.
 
+## Curation Results
+
+After analyzing the full dataset of 216,930 questions, the following number of examples were identified for each stratum:
+
+| Stratum                     | Total Examples Found |
+|-----------------------------|----------------------|
+| Phrases with Numbers        | 110,798              |
+| Phrases with Non-English    | 11,079               |
+| Phrases with Unusual Nouns  | 128,744              |
+
+
 ## Requirements
 
 Python 3.10 or higher is recommended.
