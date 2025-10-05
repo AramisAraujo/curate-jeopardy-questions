@@ -7,8 +7,18 @@ from pandarallel import pandarallel
 from nltk.corpus import words, wordnet
 from nltk.tokenize import wordpunct_tokenize
 from spacy import prefer_gpu
+from wordfreq import top_n_list
 import spacy
+import logging
 
+# Configure logging
+
+logging.basicConfig(
+    level=logging.INFO,  # change to DEBUG for more details
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",)
+
+logger = logging.getLogger(__name__)
 
 # Initialize pandarallel paralelism
 pandarallel.initialize(progress_bar=True)
@@ -20,6 +30,7 @@ nltk.download("punkt")
 
 ENGLISH_WORDS = set(word.lower() for word in words.words())
 ENGLISH_WORDS.update(word.lower() for word in wordnet.words())
+ENGLISH_WORDS.update(top_n_list("en", 50_000))
 
 
 # Compile regex patterns
@@ -248,12 +259,12 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
 
     # Step 1 : Filtering for numbers and numeric phrases
 
-    print("Filtering phrases containing numbers")
+    logger.info("\nFiltering phrases containing numbers")
     df_numbers = filter_numbers(df, fast_mode=fast_mode)
 
     # Step 2: Filtering phrases with non-English words
 
-    print("Filtering phrases containing non-English words")
+    logger.info("\nFiltering phrases containing non-English words")
     if strict_stratification:
         used_ids = set(df_numbers.index)
         df_non_english = df[~df.index.isin(used_ids)]
@@ -263,7 +274,7 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
 
     # Step 3: Filtering phrases with unusual proper nouns
 
-    print("Filtering phrases containing unusual proper nouns")
+    logger.info("\nFiltering phrases containing unusual proper nouns")
     if strict_stratification:
         used_ids |= set(df_non_english.index)
         df_proper = df[~df.index.isin(used_ids)]
@@ -273,12 +284,14 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
 
     # Summary of the subset of datasets:
 
-    print("\nSummary of matches:")
-    print(f"Examples with phrases containing numbers: {len(df_numbers)}")
-    print(f"Examples with phrases containing non-English words: {len(df_non_english)}")
-    print(f"Examples with phrases containing unusual proper nouns: {len(df_proper)}")
+    logger.info("\nSummary of matches:")
+    logger.info(f"Examples with phrases containing numbers: {len(df_numbers)}")
+    logger.info(f"Examples with phrases containing non-English words: {len(df_non_english)}")
+    logger.info(f"Examples with phrases containing unusual proper nouns: {len(df_proper)}")
 
     # Saves 1000 samples per stratum, keeping original_index
+
+    logger.info("Saving sample strata dataset..")
 
     columns_to_save = ["original_index", "question", "answer", "text",
                        "category", "value", "round", "show_number", "air_date"]
@@ -291,6 +304,8 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
 
     df_proper.sample(min(1000, len(df_proper)), random_state=random_state)[columns_to_save]\
         .to_json("outputs/subset_proper_nouns.jsonl", orient="records", lines=True, force_ascii=False)
+    
+    logger.info("Pipeline concluded.")
 
 
 # Entry point
