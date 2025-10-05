@@ -3,3 +3,4 @@ pandas
 pandarallel
 spacy
 wordfreq
+beautifulsoup4

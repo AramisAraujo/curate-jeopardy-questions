@@ -1,5 +1,6 @@
 # Import libraries and dependencies
 import re
+from bs4 import BeautifulSoup
 import string
 import nltk
 import pandas as pd
@@ -52,6 +53,31 @@ if prefer_gpu():
 else:
     # Loads a model devised to run without GPU acceleration
     spacy_model = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
+
+
+# Handling HTML elements in text
+def clean_text(text: str) -> str:
+    """
+    Cleans raw text by removing HTML tags and URLs.
+
+    Args:
+        text (str): The input string, which may contain HTML or URLs.
+
+    Returns:
+        str: The cleaned text.
+    """
+    if not isinstance(text, str):
+        return ""
+    
+    # Using BeautifulSoup to remove HTML tags
+    # The .get_text() method extracts all the human-readable text
+    text = BeautifulSoup(text, "html.parser").get_text()
+    
+    # Using regex to remove URLs
+    # This pattern looks for http/https and www prefixes
+    text = re.sub(r'https?://\S+|www\.\S+', '', text)
+    
+    return text.strip()
 
 
 # Handling numbers in text
@@ -255,7 +281,11 @@ def curate_datasets(df: pd.DataFrame, fast_mode: bool = False, strict_stratifica
     df["original_index"] = df.index
 
     # Combining question + answer for richer context
-    df["text"] = df["question"].fillna("") + " " + df["answer"].fillna(" ")
+    logger.info("\nApplying data cleaning steps")
+    df["question_clean"] = df["question"].parallel_apply(clean_text)
+    df["answer_clean"] = df["answer"].parallel_apply(clean_text)
+
+    df["text"] = df["question_clean"].fillna("") + " " + df["answer_clean"].fillna(" ")
 
     # Step 1 : Filtering for numbers and numeric phrases
 

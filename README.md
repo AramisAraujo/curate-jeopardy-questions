@@ -66,9 +66,9 @@ After analyzing the full dataset of 216,930 questions, the following number of e
 
 | Stratum                     | Total Examples Found |
 |-----------------------------|----------------------|
-| Phrases with Numbers        | 110,798              |
-| Phrases with Non-English    | 11,079               |
-| Phrases with Unusual Nouns  | 128,744              |
+| Phrases with Numbers        | 105,319              |
+| Phrases with Non-English    | 8,519                |
+| Phrases with Unusual Nouns  | 129,940              |
 
 
 ## Requirements
